@@ -1,0 +1,12 @@
+{
+  "eventId": "f1905380-7c74-47d4-bc35-b1bd7a58f901",
+  "eventType": "REQUEST_CREATED",
+  "schemaVersion": 1,
+  "requestId": 900001,
+  "requestVersion": 1,
+  "procedureId": "PERMISO-CIRCULACION",
+  "procedureName": "Permiso de circulacion",
+  "previousStatus": null,
+  "status": "INGRESADO",
+  "occurredAt": "2026-11-08T12:00:00Z"
+}
