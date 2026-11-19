@@ -26,6 +26,7 @@ import static org.mockito.Mockito.*;
 
 /** Opt-in with -Ppostgres-it. Isolated disposable PostgreSQL; never uses DB_URL or Supabase. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "spring.kafka.bootstrap-servers=127.0.0.1:1", "spring.flyway.enabled=true",
         "spring.kafka.listener.auto-startup=false", "report.outbox.enabled=false",
         "logging.structured.format.console=", "spring.main.banner-mode=off", "logging.level.root=WARN",
         "logging.level.org.springframework=WARN", "logging.level.org.hibernate=WARN", "debug=false"

@@ -206,8 +206,8 @@ Establecer variables en la terminal, IDE, contenedor o gestor de secretos.
 | `DB_URL` | Sí; JDBC PostgreSQL, sin contraseña embebida |
 | `DB_USERNAME`, `DB_PASSWORD` | Sí; valores reales proporcionados fuera del repositorio |
 | `DB_POOL_SIZE` | 5 |
-| `SERVER_PORT`, `SERVER_ADDRESS` | 8083 / 127.0.0.1 |
-| `KAFKA_BOOTSTRAP_SERVERS` | localhost:19092,localhost:29092,localhost:39092 |
+| `SERVER_PORT`, `SERVER_ADDRESS` | 8083 / 0.0.0.0 en Docker |
+| `KAFKA_BOOTSTRAP_SERVERS` | 10.0.2.174:19092,10.0.2.174:29092,10.0.2.174:39092 |
 | `KAFKA_CONSUMER_GROUP` | bd-report-v1 |
 | `KAFKA_EVENTS_TOPIC`, `KAFKA_ANALYTICS_TOPIC` | bd.requests.events.v1 / bd.requests.analytics.v1 |
 | `KAFKA_CONCURRENCY` | 3 |
@@ -261,55 +261,12 @@ Si el helper de Docker no está en PATH al usar Testcontainers, añadir la carpe
 `resources\bin` de Docker Desktop al PATH de esa terminal. No se requieren cambios
 a credenciales Docker. El Wrapper puede necesitar acceso a Internet/caché Maven.
 
-## Prueba local del flujo
+## Verificación AWS
 
-1. Mantener en ejecución el clúster existente de `infra-barriodigital` sin modificarlo.
-2. Preparar una base PostgreSQL de desarrollo o asignar acceso al esquema `bd_report`.
-   Cargar `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` en el proceso desde valores propios.
-3. Iniciar el servicio (Flyway crea únicamente su esquema/tablas):
-
-```powershell
-$env:KAFKA_BOOTSTRAP_SERVERS = 'localhost:19092,localhost:29092,localhost:39092'
-$env:SERVER_PORT = '8083'
-.\mvnw.cmd spring-boot:run
-```
-
-4. En otra terminal, comprobar salud y consultar:
-
-```powershell
-Invoke-RestMethod 'http://localhost:8083/actuator/health'
-Invoke-RestMethod 'http://localhost:8083/api/report/kpis?range=last24h'
-Invoke-RestMethod 'http://localhost:8083/api/report/top-procedures?range=last7d&limit=10'
-Invoke-RestMethod 'http://localhost:8083/api/report/requests-by-hour?from=2026-11-08T00:00:00Z&to=2026-11-09T00:00:00Z'
-```
-
-5. Para una prueba manual controlada, publicar primero creación y después cambio,
-   clave string `900001`, valor JSON de los archivos de ejemplo. En Kafbat UI los
-   campos serían Key=String y Value=JSON/String, sin headers de tipos Java.
-   **La UI actual está en modo read-only**: no se habilitó escritura ni se cambió
-   infra. Como alternativa sin alterar configuración, usar el CLI del broker:
-
-```powershell
-foreach ($file in @('request-created.json', 'request-status-changed.json')) {
-    $payload = Get-Content "docs/events/$file" -Raw | ConvertFrom-Json | ConvertTo-Json -Compress
-    "900001|$payload" | docker exec -i barriodigital-kafka-kafka-1-1 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka-1:9092 --topic bd.requests.events.v1 --property parse.key=true --property 'key.separator=|' --producer-property acks=all --producer-property enable.idempotence=true
-}
-```
-
-Este comando escribe eventos de prueba en el tópico local de negocio: usar solo
-en un entorno de desarrollo y elegir un requestId nuevo si ya hay datos con ese ID.
-No se ejecutó durante esta implementación. Los archivos están fechados para un
-intervalo explícito; actualizar fechas/eventIds/requestId antes de una demostración
-posterior, conservando la secuencia. Para probar duplicados, reenviar exactamente
-el mismo JSON, sin cambiar eventId ni contenido.
-
-6. Consultar con rango explícito que cubra las fechas publicadas. En una DB vacía,
-   los dos ejemplos producen una sola solicitud ADMITIDO, dos eventos procesados
-   y dos publicaciones analíticas; promedio de resolución null. Para observar
-   duración, continuar con eventos de versiones 3, 4 y 5 por EN_GESTION, EN_TERRENO
-   y RESUELTO, cada uno con UUID nuevo, previousStatus correcto y timestamp posterior.
-7. Revisar Kafbat: grupo `bd-report-v1`, offsets/lag, particiones y mensajes de
-   `bd.requests.analytics.v1`. La UI puede refrescar metadatos con demora.
+Comprobar la versión V1 en `bd_report.flyway_schema_history` antes del despliegue.
+En Kafka UI, verificar el grupo `bd-report-v1`. Consultar los indicadores a través
+del BFF y API Gateway con el JWT emitido por Entra. El servicio conserva
+`report:8083` dentro de la red Docker.
 
 ## Operación y recuperación
 
@@ -346,26 +303,13 @@ consumo del servicio. Una proyección completa requiere historia desde la creaci
 o un futuro procedimiento de bootstrap acordado con requests. No se inventan
 fechas de creación para aceptar cambios huérfanos.
 
-## Docker y preparación AWS
+## Despliegue AWS
 
-El Dockerfile empaqueta el JAR previamente compilado, usa JRE 21 y usuario no root:
+El Compose central de `infra-barriodigital/aws/compose.apps.yml` construye esta
+imagen a partir del checkout en la EC2 Apps. Usar la guía `README.AWS.md` de
+infraestructura para preparar las variables y ejecutar el despliegue por SSM.
 
-```powershell
-.\mvnw.cmd -B -ntp package
-docker build -t barriodigital/ms-report:local .
-```
-
-Para conectarlo al Kafka existente usar `--network barriodigital-kafka-net`,
-`KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092`, y DB por entorno.
-El Dockerfile define `SERVER_ADDRESS=0.0.0.0`; limitar la publicación local a
-`127.0.0.1:8083:8083`. Comenzar con límite de 768 MiB y medir con la carga real.
-`.dockerignore` excluye todo salvo Dockerfile y JAR, incluidos secretos y `.env`.
-No se construyó ni desplegó esta imagen durante la validación.
-
-Para AWS: inyectar configuración/secrets, endpoints privados de brokers/DB y TLS
-según el laboratorio, ejecutar migraciones controladamente y mantener la API en
-red interna detrás del BFF. Este servicio no valida JWT en esta fase y no debe
-publicarse directamente como API pública. No se ha desplegado ni modificado AWS.
+El límite es 768 MiB. Flyway permanece desactivado en el arranque AWS.
 
 ## Referencias de compatibilidad
 
